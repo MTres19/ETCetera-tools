@@ -2,7 +2,7 @@
 
 include $(APPDIR)/Make.defs
 
-MAINSRC = cantest_main.c dynohelper_main.c thottle_logdump_main.c
+MAINSRC = cantest_main.c dynohelper_main.c throttle_logdump_main.c
 
 PROGNAME = cantest dynohelper throttle_logdump
 PRIORITY = $(CONFIG_INDUSTRY_ETCETERA_TOOLS_PRIORITY)
