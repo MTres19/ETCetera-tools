@@ -1,16 +1,14 @@
 About
 -----
 
-ETCetera will be an electronic throttle controller program
-written for the NuttX RTOS.
+ETCetera will be an electronic throttle controller program written for the
+NuttX real-time OS. This repository contains command-line utilities that run
+on NuttX via NuttShell, NuttX's interactive shell accessable over a serial
+or telnet connection.
 
 Building
 --------
 
-Clone the the upstream NuttX and NuttX apps repositories into
-two directories called "nuttx" and "apps" respectively. Then,
-add this repository to apps as a submodule under the "industry"
-folder.
-
-Configure as usual with make menuconfig, but set ETCetera_main as
-the entry point.
+These tools are meant to be build along with the main ETCetera daemon. See
+the [ETCetera README](https://github.com/MTres19/ETCetera/blob/main/README.md)
+for details.
