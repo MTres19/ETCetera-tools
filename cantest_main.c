@@ -67,7 +67,7 @@ static int filter_candevs(const struct dirent *file);
 #ifdef CONFIG_CAN_ERRORS
 static void print_errframe(const struct can_msg_s *msg);
 #endif
-static void print_canmsg(const struct can_msg_s *msg);
+static void print_canmsgs(uint8_t *msgs, int buflen);
 static void test_basic_receive(const int canfd);
 static void test_add_std_filter(int canfd);
 static int parse_mask(const char *msk, void *fltr_ptr, bool extended);
@@ -255,56 +255,88 @@ static void print_errframe(const struct can_msg_s *msg)
     {
       printf("Not an error frame.\n");
     }
+  
+  fflush(stdout);
 }
 #endif /* CONFIG_CAN_ERRORS */
 
 /****************************************************************************
- * Name: print_canmsg
+ * Name: print_canmsgs
  * 
  * Description:
- *   Prints the passed CAN message nicely to standard output.
+ *   Treats the buffer as a packed array of struct can_msg_s. (i.e. unused
+ *   data bits from the first struct are part of the next struct.
  * 
  * Input paramters:
- *   msg - Pointer to struct can_msg_s with the message to print.
+ *   msgs - Packed array of struct can_msg_s returned by read().
+ *   buflen - Number of bytes returned by read() (not the actual size of the
+ *            buffer)
  ****************************************************************************/
 
-static void print_canmsg(const struct can_msg_s *msg)
+static void print_canmsgs(uint8_t *msgs, int buflen)
 {
-  if (msg->cm_hdr.ch_rtr)
-    {
-      printf("RMT ");
-    }
-  else
-    {
-      printf("DAT ");
-    }
+  int offset = 0;
+  struct can_msg_s *msg;
   
-#ifdef CONFIG_CAN_EXTID
-  if (msg->cm_hdr.ch_extid)
-  {
-    printf("EXT ");
-  }
-  else
-  {
-    printf("STD ");
-  }
-#else
-  printf("STD ");
-#endif
-  
-  printf("ID (dec): %d DLC (dec): %d",
-         msg->cm_hdr.ch_id, msg->cm_hdr.ch_dlc);
-  
-  if (! msg->cm_hdr.ch_rtr)
+  while (true)
     {
-      printf(" DATA (hex):");
-      for (int i = 0; i < msg->cm_hdr.ch_dlc; ++i)
+      msg = (struct can_msg_s *)((uint8_t *)msgs + offset);
+      offset += CAN_MSGLEN(msg->cm_hdr.ch_dlc);
+      
+      /* Offset is the position of the first byte of the next frame in the
+       * buffer, so it is also the length of the messages read so far.
+       */
+      
+      if (offset > buflen)
+        {
+          break;
+        }
+        
+#ifdef CONFIG_CAN_ERRORS
+      if (msg->cm_hdr.ch_error)
       {
-        printf(" %x", msg->cm_data[i]);
+        print_errframe(msg);
+        return;
       }
+#endif
+      
+      if (msg->cm_hdr.ch_rtr)
+        {
+          printf("RMT ");
+        }
+      else
+        {
+          printf("DAT ");
+        }
+      
+#ifdef CONFIG_CAN_EXTID
+      if (msg->cm_hdr.ch_extid)
+      {
+        printf("EXT ");
+      }
+      else
+      {
+        printf("STD ");
+      }
+#else
+      printf("STD ");
+#endif
+      
+      printf("ID (dec): %d DLC (dec): %d",
+            msg->cm_hdr.ch_id, msg->cm_hdr.ch_dlc);
+      
+      if (! msg->cm_hdr.ch_rtr)
+        {
+          printf(" DATA (hex):");
+          for (int i = 0; i < msg->cm_hdr.ch_dlc; ++i)
+          {
+            printf(" %x", msg->cm_data[i]);
+          }
+        }
+      
+      printf("\n");
+      fflush(stdout);
     }
-  
-  printf("\n");
 }
 
 /****************************************************************************
@@ -324,8 +356,9 @@ static void test_basic_receive(const int canfd)
     {.fd = STDIN_FILENO,  .events = POLLIN, .revents = 0}
   };
   int ret;
-  struct can_msg_s msg;
+  struct can_msg_s msgbuf;
   char input;
+  static int cnt = 0;
   
   printf("Listening for CAN frames. Type Q to quit.\n");
   while (true)
@@ -343,6 +376,8 @@ static void test_basic_receive(const int canfd)
         }
       else
         {
+          ++cnt;
+          
           for (int i = 0; i < 2; ++i)
             {
               if (fds[i].revents & ~POLLIN)
@@ -355,7 +390,7 @@ static void test_basic_receive(const int canfd)
           
           if (fds[0].revents & POLLIN)
             {
-              ret = read(canfd, &msg, sizeof(struct can_msg_s));
+              ret = read(canfd, &msgbuf, sizeof(struct can_msg_s));
               if (ret < CAN_MSGLEN(0) || ret > sizeof(struct can_msg_s))
                 {
                   printf("read() of CAN device returned %d, \n", ret);
@@ -367,18 +402,7 @@ static void test_basic_receive(const int canfd)
                 }
               else
                 {
-#ifdef CONFIG_CAN_ERRORS
-                  if (msg.cm_hdr.ch_error)
-                  {
-                    print_errframe(&msg);
-                  }
-                  else
-                  {
-                    print_canmsg(&msg);
-                  }
-#else
-                  print_canmsg(&msg);
-#endif
+                  print_canmsgs(&msgbuf, ret);
                 }
             }
           if (fds[1].revents & POLLIN)
