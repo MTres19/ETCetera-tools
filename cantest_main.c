@@ -476,11 +476,23 @@ static void test_add_std_filter(int canfd)
             }
           else
             {
-              printf("Added filter %d.\n", errno);
+              printf("Added filter %d.\n", ret);
             }
         }
     }
 }
+
+/****************************************************************************
+ * Name: test_add_ext_filter
+ * 
+ * Description:
+ *   Allows the user to add filters (this removes the default accept-antyhing
+ *   filter)
+ * 
+ * Input parameters:
+ *   canfd - Open file descriptor for the CAN device (not related to FDCAN)
+ ****************************************************************************/
+/* TODO */
 
 /****************************************************************************
  * Name: parse_mask
