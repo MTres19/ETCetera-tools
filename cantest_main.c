@@ -71,6 +71,7 @@ static void print_canmsgs(uint8_t *msgs, int buflen);
 static void test_basic_receive(const int canfd);
 static void test_add_std_filter(int canfd);
 static int parse_mask(const char *msk, void *fltr_ptr, bool extended);
+static void test_rtr_transaction(int canfd);
 
 /****************************************************************************
  * Private Data
@@ -179,7 +180,7 @@ static void print_errframe(const struct can_msg_s *msg)
             {
               printf("TX passive level");
             }
-          else
+          if (!msg->cm_data[1])
             {
               printf("Unspecified");
             }
@@ -220,7 +221,7 @@ static void print_errframe(const struct can_msg_s *msg)
             {
               printf("General TX error");
             }
-          else
+          if (!msg->cm_data[2])
             {
               printf("Unspecified");
             }
@@ -296,7 +297,7 @@ static void print_canmsgs(uint8_t *msgs, int buflen)
       if (msg->cm_hdr.ch_error)
       {
         print_errframe(msg);
-        return;
+        continue;
       }
 #endif
       
@@ -346,7 +347,7 @@ static void print_canmsgs(uint8_t *msgs, int buflen)
  *   Prints CAN messages until the user types "q"
  * 
  * Input parameters:
- *   canfd - Open file descriptor for the CAN device (not related to FDCAN)
+ *   canfd - Open file descriptor for the CAN device (not related to FDCAN).
  ****************************************************************************/
 
 static void test_basic_receive(const int canfd)
@@ -402,7 +403,7 @@ static void test_basic_receive(const int canfd)
                 }
               else
                 {
-                  print_canmsgs(&msgbuf, ret);
+                  print_canmsgs((uint8_t *)&msgbuf, ret);
                 }
             }
           if (fds[1].revents & POLLIN)
@@ -448,7 +449,8 @@ static void test_add_std_filter(int canfd)
   struct canioc_stdfilter_s filter;
   
   fputs("Standard mask filter: enter a message ID as 1's and 0's with\n"
-        "don't cares represented by X's. (example: 11X001X)\n", stdout);
+        "don't cares represented by X's. (example: 11X001X)\n"
+        "Unspecified bits are treated as must-match leading zeros.\n", stdout);
   
   while (true)
     {
@@ -492,7 +494,178 @@ static void test_add_std_filter(int canfd)
  * Input parameters:
  *   canfd - Open file descriptor for the CAN device (not related to FDCAN)
  ****************************************************************************/
-/* TODO */
+
+#ifdef CONFIG_CAN_EXTID
+static void test_add_ext_filter(int canfd)
+{
+  int ret;
+  char selection[31] = {0};
+  struct canioc_extfilter_s filter;
+  
+  fputs("Extended mask filter: enter a message ID as 1's and 0's with\n"
+        "don't cares represented by X's (example: 11X001X) \n"
+        "Unspecified bits are treated as must-match leading zeros.\n", stdout);
+  
+  while (true)
+    {
+      fputs("Enter a filter, or Q to quit: ", stdout);
+      fflush(stdout);
+      std_readline(selection, 13);
+      
+      if (strcmp(selection, "Q\n") == 0 || strcmp(selection, "q\n") == 0)
+        {
+          puts("Quit");
+          break;
+        }
+      else
+        {
+          ret = parse_mask(selection, &filter, true);
+          if (ret < 0)
+            {
+              printf("Error parsing mask: %d\n", errno);
+              continue;
+            }
+          
+          ret = ioctl(canfd, CANIOC_ADD_EXTFILTER, &filter);
+          if (ret < 0)
+            {
+              printf("Error adding filter: %d\n", errno);
+            }
+          else
+            {
+              printf("Added filter %d.\n", ret);
+            }
+        }
+    }
+}
+#endif
+
+/****************************************************************************
+ * Name: test_rtr_transaction
+ * 
+ * Description:
+ * 
+ * Input parameters:
+ *   canfd - Open file descriptor for the CAN device (not related to FDCAN).
+ *           
+ ****************************************************************************/
+
+static void test_rtr_transaction(int canfd)
+{
+  int ret;
+  long id;
+  char selection[31] = {0};
+  struct can_msg_s    xpectd_msg;
+  struct canioc_rtr_s rmt_req = {
+    .ci_timeout = {
+      .tv_sec = 10,
+      .tv_nsec = 1000
+    },
+    .ci_msg = &xpectd_msg
+  };
+  
+  while (true)
+    {
+      fputs("Enter X for extended ID, S for standard ID, followed by the\n"
+            "message ID in decimal. (e.g. S1520) Enter Q to quit: ", stdout);
+      fflush(stdout);
+      std_readline(selection, 31);
+      
+      switch (selection[0])
+      {
+        case 'X':
+#ifdef CONFIG_CAN_EXTID
+          xpectd_msg.cm_hdr.ch_extid = true;
+          break;
+#else
+          puts("Extended ID support disabled in this build.");
+          continue;
+#endif
+        case 'S':
+#ifdef CONFIG_CAN_EXTID
+          xpectd_msg.cm_hdr.ch_extid = false;
+#endif
+          break;
+        case 'Q':
+        case 'q':
+          puts("Quit");
+          return;
+        default:
+          puts("Unexpected starting character.");
+          continue;
+      }
+      
+      if (selection[1] < '0' || selection[1] > '9')
+        {
+          puts("Not a valid message ID.");
+          continue;
+        }
+      
+      id = atol(selection + 1);
+      
+#ifdef CONFIG_CAN_EXTID
+      if (!xpectd_msg.cm_hdr.ch_extid && id > CAN_MAX_STDMSGID)
+        {
+          puts("Standard message ID too large.");
+          continue;
+        }
+      else if (xpectd_msg.cm_hdr.ch_extid && id > CAN_MAX_EXTMSGID)
+        {
+          puts("Extended message ID too large.");
+          continue;
+        }
+#else
+      if (id > CAN_MAX_STDMSGID)
+      {
+        puts("Standard message ID too large.");
+        continue;
+      }
+#endif
+      
+      xpectd_msg.cm_hdr.ch_id = id;
+      
+      fputs("Enter the data length code to request in decimal,\n"
+            "or Q to quit: ", stdout);
+      fflush(stdout);
+      std_readline(selection, 31);
+      
+      if (selection[0] < '0' || selection[0] > '9')
+      {
+        if (selection[0] == 'q' || selection[0] == 'Q')
+          {
+            return;
+          }
+        else
+          {
+            puts("Not a valid DLC");
+            continue;
+          }
+      }
+      
+      xpectd_msg.cm_hdr.ch_dlc = atoi(selection);
+      
+      if (xpectd_msg.cm_hdr.ch_dlc > 8)
+      {
+        puts("DLC too large.");
+        continue;
+      }
+      
+      puts("Sending request and waiting for response...");
+      fflush(stdout);
+      ret = ioctl(canfd, CANIOC_RTR, &rmt_req);
+      
+      if (ret < 0)
+      {
+        printf("Request failed: %d\n", errno);
+      }
+      else
+      {
+        puts("Response received:");
+        print_canmsgs((uint8_t *)&xpectd_msg,
+                      CAN_MSGLEN(xpectd_msg.cm_hdr.ch_dlc));
+      }
+    }
+}
 
 /****************************************************************************
  * Name: parse_mask
@@ -536,6 +709,13 @@ static int parse_mask(const char *msk, void *fltr_ptr, bool extended)
       return -1;
     }
 #endif
+  
+  if (msk[0] == '\0' || msk[0] == '\r' || msk[0] == '\n')
+    {
+      puts("No filter given.");
+      errno = EINVAL;
+      return -1;
+    }
   
   for (i = 0; msk[i] != '\0' && msk[i] != '\r' && msk[i] != '\n'; ++i)
     {
@@ -612,6 +792,78 @@ static int parse_mask(const char *msk, void *fltr_ptr, bool extended)
     }
   
   return OK;
+}
+
+/*****************************************************************************
+ * Name: test_del_filter
+ * 
+ * Description:
+ *   Prompts the user to select a filter number to delete.
+ * 
+ * Input parameters:
+ *   canfd - Open file descriptor for the CAN character device
+ *   extended - Whether to use CANIOC_DEL_EXTFILTER or CANIOC_DEL_STDFILTER
+ ****************************************************************************/
+
+static int test_del_filter(int canfd, bool extended)
+{
+  int ret;
+  char selection[5] = {0};
+  
+#ifndef CONFIG_CAN_EXTID
+  if (extended)
+  {
+    puts("Extended ID support disabled in this build.");
+    errno = EINVAL;
+    return -1;
+  }
+#endif
+  
+  fputs("Delete ", stdout);
+  
+  if (extended)
+    fputs("extended", stdout);
+  else
+    fputs("standard", stdout);
+  
+  fputs(" filter: enter the filter number returned when the\n"
+        "filter was added.\n", stdout);
+  
+  while (true)
+    {
+      fputs("Enter a filter number, or Q to quit: ", stdout);
+      fflush(stdout);
+      std_readline(selection, 5);
+      
+      if (strcmp(selection, "Q\n") == 0 || strcmp(selection, "q\n") == 0)
+        {
+          puts("Quit");
+          ret = 0;
+          break;
+        }
+      else
+        {
+          ret = atoi(selection);
+          
+#ifdef CONFIG_CAN_EXTID
+          if (extended)
+            ret = ioctl(canfd, CANIOC_DEL_EXTFILTER, ret);
+          else
+#endif
+            ret = ioctl(canfd, CANIOC_DEL_STDFILTER, ret);
+          
+          if (ret < 0)
+            {
+              printf("Error deleting filter: %d\n", errno);
+            }
+          else
+            {
+              puts("Deleted filter.");
+            }
+        }
+    }
+  
+  return ret;
 }
 
 /****************************************************************************
@@ -743,10 +995,12 @@ int main(int argc, char **argv)
              " 2. Print setup info\n"
              " 3. Add standard filters\n"
              " 4. Add extended filters\n"
-             " 5. Remove filters\n"
+             " 5. Remove standard filters\n"
+             " 6. Remove extended filters\n"
+             " 7. Perform a remote-request-response transaction"
              "\n\n");
       
-      fputs("Please select an option (1/Q): ", stdout);
+      fputs("Please select an option (1/2/3/4/5/6/7/Q): ", stdout);
       fflush(stdout);
       ret = std_readline(selection, 3);
       
@@ -755,21 +1009,42 @@ int main(int argc, char **argv)
         printf("Readline error, exiting\n");
         break;
       }
-      
       else if (strcmp(selection, "Q\n") == 0 || strcmp(selection, "q\n") == 0)
       {
         printf("Quit.\n");
         break;
       }
-      
       else if (strcmp(selection, "1\n") == 0)
       {
         test_basic_receive(fd);
       }
-      
+      else if (strcmp(selection, "2\n") == 0)
+      {
+        puts("Not implemented yet.");
+      }
       else if (strcmp(selection, "3\n") == 0)
       {
         test_add_std_filter(fd);
+      }
+      else if (strcmp(selection, "4\n") == 0)
+      {
+#ifdef CONFIG_CAN_EXTID
+        test_add_ext_filter(fd);
+#else
+        puts("Extended ID support was disabled in this build.");
+#endif
+      }
+      else if (strcmp(selection, "5\n") == 0)
+      {
+        test_del_filter(fd, false);
+      }
+      else if (strcmp(selection, "6\n") == 0)
+      {
+        test_del_filter(fd, true);
+      }
+      else if (strcmp(selection, "7\n") == 0)
+      {
+        test_rtr_transaction(fd);
       }
       else
       {
