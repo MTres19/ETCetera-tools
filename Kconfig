@@ -10,7 +10,7 @@ config INDUSTRY_ETCETERA_TOOLS
 	select SYSTEM_READLINE
 	---help---
 		Enable building the the console utilities (cantest, dynohelper,
-		throttle_logdump).
+		throttle_logdump, drstest).
 
 if INDUSTRY_ETCETERA_TOOLS
 
