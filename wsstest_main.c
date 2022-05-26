@@ -1,5 +1,5 @@
 /****************************************************************************
- * apps/industry/ETCetera-tools/etbtest_main.c
+ * apps/industry/ETCetera-tools/wsstest_main.c
  * Electronic Throttle Controller program - CAN bus test utility
  *
  * Copyright (C) 2022  Matthew Trescott <matthewtrescott@gmail.com>
@@ -44,56 +44,8 @@
 
 int main(int argc, char **argv)
 {
-  int ret;
-  printf("Enabling 5V0LIN_SENSE...\n");
-  ret = boardctl(BOARDIOC_5V0LIN_SENSE_EN, 0);
-  if (ret == OK) 
-    {
-      printf("5V0LIN_SENSE enabled successfully. Waiting 1 second to arm.\n");
-    }
-  else
-    {
-      printf("5V0LIN_SENSE failed to start. Aborting.");
-      return ret;
-    }
-  sleep(1);
-  boardctl(BOARDIOC_ARM_READY, 0);
-  
-  while(true)
-    {
-      char selection[4] = {0};
-      
-      printf("Type Q to quit or enter a duty cycle as a percentage:"
-             "\n\n");
-      
-      fputs("Please select an option (duty cyle/Q): ", stdout);
-      fflush(stdout);
-      ret = std_readline(selection, 4);
-      
-      if (ret < 0)
-        {
-          printf("Readline error, exiting\n");
-          break;
-        }
-      else if (strcmp(selection, "Q\n") == 0 || strcmp(selection, "q\n") == 0)
-        {
-          printf("Quit.\n");
-          break;
-        }
-      else
-        {
-          ret = atoi(selection);
-          if (ret <= 0 || ret > 30)
-          {
-            printf("Invalid duty cycle. Duty cycle may not be >30.\n");
-          }
-          else
-          {
-            ret = boardctl(BOARDIOC_ETB_DUTY, ret);
-          }
-        }
-    }
-    
-    boardctl(BOARDIOC_ETB_STOP, 0);
-    return ret;
+  int ret = 0;
+  printf("Enabling wheel speed feeds.\n");
+  ret = boardctl(BOARDIOC_WSS_ENABLE, 0);
+  return ret;
 }

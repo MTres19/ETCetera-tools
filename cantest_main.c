@@ -326,7 +326,7 @@ static void print_canmsgs(uint8_t *msgs, int buflen)
       printf("STD ");
 #endif
 
-      printf("ID (dec): %d DLC (dec): %d",
+      printf("ID (dec): %lu DLC (dec): %hhu",
             msg->cm_hdr.ch_id, msg->cm_hdr.ch_dlc);
 
       if (! msg->cm_hdr.ch_rtr)
@@ -888,7 +888,7 @@ static void test_tx_burst(int canfd)
 
   for (int i = 0; i < 17; ++i)
   {
-    ptr = msgs + i * CAN_MSGLEN(8);
+    ptr = (struct can_msg_s *)(msgs + i * CAN_MSGLEN(8));
     ptr->cm_hdr.ch_id = i;
     ptr->cm_hdr.ch_dlc = 8;
     ptr->cm_hdr.ch_extid = 1;
@@ -914,6 +914,8 @@ static void *test_poll_bug(void *arg)
     {
       read(canfd, &msg, sizeof(struct can_msg_s));
     }
+  
+  return NULL;
 }
 
 /****************************************************************************
